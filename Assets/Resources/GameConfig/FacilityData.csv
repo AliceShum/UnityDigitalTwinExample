@@ -1,0 +1,16 @@
+id(唯一),组织ID,事业部ID,设备编码,设备名称,测点编码,测点名称 ,刷新频率（ms）（监控填-1）,rtsp地址（参考：rtsp://xxxx:xxxx@10.174.61.87:554/xxx/xxx/main/av_stream）,设备类型 ,备注
+id,orgId,parentOrgId,deviceId,deviceName,tagCode,tagName,refresh_rate,rtsp_addr,type,note
+string,string,string,string,string,string,string,int,string,string,string
+1,1201,INV_M85_广东美芝制冷,A0103010002180011,中外9#炉,01030100020021200002,设备运行状态,30000,,环保设备,
+2,1201,INV_M85_广东美芝制冷,A3102050001160023,21-废气焚烧炉-EFGH涂装,11010400020026210001,设备状态与故障,30000,,排污监测设备,
+3,1201,INV_M85_广东美芝制冷,A1101040002170001,21-涂装烧附炉-ABCD涂装,11010400020026210001,设备状态与故障,30000,,开门状态采集设备,
+4,1201,INV_M85_广东美芝制冷,A1302010002160081,21-废气焚烧炉-ABCD涂装,11010400020026210001,设备状态与故障,30000,,环保设备,
+5,1201,INV_M85_广东美芝制冷,,CC钣金门口AI测速,,,-1,rtsp://admin:mz123456@192.168.125.225:554/h264/ch1/main/av_stream,画面监控设备,测速
+6,1201,INV_M85_广东美芝制冷,,CC动力办公室管道AI测速,,,-1,rtsp://admin:mz123456@192.168.100.224:554/h264/ch1/main/av_stream,画面监控设备,测速
+7,1201,INV_M85_广东美芝制冷,,CC天桥AI测速1号,,,-1,rtsp://admin:mz123456@192.168.125.226:554/h264/ch1/main/av_stream,画面监控设备,测速
+8,1201,INV_M85_广东美芝制冷,,CC天桥AI测速2号,,,-1,rtsp://admin:mz123456@192.168.125.227:554/h264/ch1/main/av_stream,画面监控设备,测速
+9,1201,INV_M85_广东美芝制冷,,CC天桥AI测速3号,,,-1,rtsp://admin:mz123456@192.168.100.223:554/h264/ch1/main/av_stream,画面监控设备,测速
+10,1202,INV_M85_广东美芝制冷,,PC南门地镑处AI测速,,,-1,rtsp://admin:mz123456@10.60.12.218:554/h264/ch1/main/av_stream,画面监控设备,测速
+11,1202,INV_M85_广东美芝制冷,,PC南门主道Ai测速,,,-1,rtsp://admin:mz123456@10.60.11.217:554/h264/ch1/main/av_stream,画面监控设备,测速
+12,1202,INV_M85_广东美芝制冷,,PC南门次道Ai测速,,,-1,rtsp://admin:mz123456@10.60.11.218:554/h264/ch1/main/av_stream,画面监控设备,测速
+13,1202,INV_M85_广东美芝制冷,,PC南门卷线物流通道AI测速,,,-1,rtsp://admin:mz123456@10.60.12.219:554/h264/ch1/main/av_stream,画面监控设备,测速
