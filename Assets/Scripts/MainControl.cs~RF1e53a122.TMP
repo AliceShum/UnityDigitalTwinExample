@@ -1,0 +1,655 @@
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using Midea.DigitalTwin;
+
+public class MainControl : MonoBehaviour
+{
+    public bool is_da_liang = true;//是否是大良厂区
+
+    private string ip = "10.18.62.24"; // mqtt用
+    private int port = 1883; //mqtt用
+
+    //设备信息
+    private List<FacilityData> facility_data_list = new List<FacilityData>();//从csv文件读取的全部设备信息
+    private string[] type_names;//全部的设备名字 
+    private string all_type_name = "全部设备";//全部设备按钮的名字
+    private Dictionary<string, List<int>> facility_type_index_dic = new Dictionary<string, List<int>>();//<设备类型名字，该类型设备在facility_data_list的id>
+
+    //UI
+    private GameObject info;//具体设备信息UI
+    private GameObject info_bg_btn;//具体设备信息背景
+    private Text t1_content_txt;//设备名字 文本
+    private Text t2_txt;//设备运行状态标题文本
+    private Text t2_content_txt;//设备运行状态文本
+
+    private Transform facility_btn_parent;//设备运行按钮demo的父父物体
+    private GameObject hb_demo;//环保设备按钮的demo
+    private GameObject pwjc_demo;//排污监测设备按钮的demo
+    private GameObject hmjk_demo;//画面监控监测设备按钮的demo
+    private GameObject kmzt_demo;//开门状态采集设备按钮的demo
+
+    private GameObject[] type_btn_on_objs;//底部的类型按钮的on Gameobject
+    private Dictionary<string, GameObject> facility_btn_type_parents = new Dictionary<string, GameObject>();//某个设备类型的名字，对应类型全部设备按钮的父物体
+    private Dictionary<string, facility_info[]> facility_type_dic = new Dictionary<string, facility_info[]>();//某个设备类型的名字，对应类型全部设备按钮的facility_info   string对应type_names
+
+    private GameObject cam_panel;//监控设备面板
+    private Text cam_name;//监控设备 名字
+
+    //记录点击过的 
+    public int last_click_type_index = -1;//上次点击过的底部类型按钮index
+    public int last_click_facility_index = -1;//上次点击过的设备facility_info中的 index
+    public string last_click_facility_type;//上次点击过的设备facility_info中的 设备类型
+
+    //摄像机
+    private Camera cam;//摄像机
+    private CameraControl cam_control;//摄像机控制脚本
+
+    //警告面板 
+    private bool is_check_warn = false;//是否开始检查警告信息
+    private GameObject promptCanvas;//警告面板物体
+    private PromptPanel propt_panel_script; //警告面板的脚本
+
+    private float time_interval = -1f; //  每隔多长时间检查每个设备是否需要刷新数据
+    private float previous_time = 0f; //上次的时间
+    //private int time_interval = 60;//刷新 的时间间隔( 每个设备刷新时间一样的话，用 invokerepeat)
+
+    private void Start()
+    {
+        InitCam();
+        //MqttController.Instance.Connect(ip, port);
+        GetFacilityDatas();
+
+        InitRefreshTime();
+
+        InitUI();
+        OnBottomBtnClick(0);
+
+        InitPromptCanvas();
+        //SetIsCheckWarn(true);
+    }
+
+    #region 设备信息部分
+    //初始化获取设备信息
+    void GetFacilityDatas() {
+        facility_data_list = GetFacilityDatasByFactory(); // FacilityData.GetConfigDatas<FacilityData>();
+        Dictionary<string, int> type_name_dic = new Dictionary<string, int>();
+        for (int i = 0; i < facility_data_list.Count; i++) {  
+            string s = facility_data_list[i].type;
+            if (!type_name_dic.ContainsKey(s)) //获取全部设备类型
+            {  
+                type_name_dic.Add(s, i);
+            }
+            
+            //获取对应类型的设备id
+            if(!facility_type_index_dic.ContainsKey(s))
+                facility_type_index_dic[s] = new List<int>();
+            facility_type_index_dic[s].Add(i);
+        }
+        type_names = new string[type_name_dic.Count + 1];
+        type_names[0] = all_type_name;
+        int temp_index = 1;
+        foreach (KeyValuePair<string, int> pair in type_name_dic) { //加入设备类型的名字
+            type_names[temp_index] = pair.Key;
+            temp_index++;
+        }
+    }
+
+    //获取某个厂区的全部设备信息
+    List<FacilityData> GetFacilityDatasByFactory() {
+        List<FacilityData> result_list = new List<FacilityData>();
+        List<FacilityData> all_data_list = FacilityData.GetConfigDatas<FacilityData>();
+        for (int i = 0; i < all_data_list.Count; i++)
+        {
+            string area_name = all_data_list[i].area_name;
+            if (is_da_liang && area_name == "大良厂区")
+            {
+                result_list.Add(all_data_list[i]);
+            }
+            else if (!is_da_liang && area_name != "容桂厂区")
+            {
+                result_list.Add(all_data_list[i]);
+            }
+        }
+        return result_list;
+    }
+
+    //根据index获取设备数据 
+    FacilityData GetSingleFacilityData(int index) {
+        return facility_data_list[index];
+    }
+
+    //获取某个类型的全部设备index(可以从facility_data_list直接用来查找数据)
+    facility_info[] GetTypeAllFacilityData(string type_name)
+    {
+        List<int> index_list = facility_type_index_dic[type_name];
+        facility_info[] result = new facility_info[index_list.Count];
+        for (int i = 0; i < index_list.Count; i++)
+        {
+            result[i] = new facility_info
+            {
+                find_index = index_list[i],
+            };
+        }
+        return result;
+    }
+
+    //获取单个设备的运行信息(MQTT)
+    string GetFacilityRunningState(string back_topic)
+    {
+        string topic = CommonData.Instance.front_topic + back_topic;
+        return MqttController.Instance.Subscribe(topic).ToString();
+    }
+
+    //获取单个设备的运行信息(WWW)
+    void NetworkGetFacilityRunningState(string url, facility_info f)
+    {
+        string facility_type = GetSingleFacilityData(f.find_index).type;
+        int index = f.index;
+        url = "http://10.74.150.59:8899/Unity_Project/MeiZhi_Project/Assets/text.txt";
+        NetworkDownload.Instance.GetMessageWithCallback(url,
+            message =>{
+                OnGetSingleFacilityBtnInfo(message, facility_type, index);
+            });
+    }
+
+    #endregion
+
+    #region UI部分
+    void InitUI()
+    {
+        Transform canvas = GameObject.Find("Canvas").transform;
+        CreateBottomBtns(canvas);
+
+        facility_btn_parent = canvas.Find("facility_btn_parent");
+        hb_demo = facility_btn_parent.Find("hb_demo").gameObject;
+        hb_demo.SetActive(false);
+        pwjc_demo = facility_btn_parent.Find("pwjc_demo").gameObject;
+        pwjc_demo.SetActive(false);
+        hmjk_demo = facility_btn_parent.Find("hmjk_demo").gameObject;
+        hmjk_demo.SetActive(false);
+        kmzt_demo = facility_btn_parent.Find("kmzt_demo").gameObject;
+        kmzt_demo.SetActive(false);
+        CreateAllFacilityBtns();
+
+        info_bg_btn = canvas.Find("info_bg_btn").gameObject;
+        info_bg_btn.GetComponent<Button>().onClick.AddListener(delegate {
+            HideInfo();
+        });
+        info_bg_btn.SetActive(false);
+
+        info = canvas.Find("info").gameObject;
+        info.transform.Find("t1").GetComponent<Text>().text = "设备名字：";
+        t1_content_txt = info.transform.Find("t1_content").GetComponent<Text>();
+        t2_txt = info.transform.Find("t2").GetComponent<Text>();
+        t2_content_txt = info.transform.Find("t2_content").GetComponent<Text>();
+        info.SetActive(false);
+
+        cam_panel = canvas.Find("cam_panel").gameObject;
+        cam_name = cam_panel.transform.Find("Text").GetComponent<Text>();
+        cam_panel.transform.Find("return_btn").GetComponent<Button>().onClick.AddListener(
+            delegate {
+                CloseCamPanel();
+            });
+        cam_panel.SetActive(false);
+    }
+
+    // ============================== 底部按钮 start=====================================
+
+    //生成底部按钮
+    void CreateBottomBtns(Transform canvas) {
+        Transform bottom_bar = canvas.Find("bottom_bar");
+        GameObject bottom_btn = bottom_bar.Find("item").gameObject;
+        bottom_btn.SetActive(false);
+        type_btn_on_objs = new GameObject[type_names.Length];
+        for (int i = 0; i < type_names.Length; i++)
+        {
+            GameObject go = Instantiate(bottom_btn);
+            go.transform.SetParent(bottom_bar);
+            go.name = type_names[i];
+            go.GetComponent<Text>().text = type_names[i];
+            go.transform.Find("name").GetComponent<Text>().text = type_names[i];
+            int temp = i;
+            go.GetComponentInChildren<Button>().onClick.AddListener(delegate {
+                OnBottomBtnClick(temp);
+            });
+            GameObject on = go.transform.Find("on").gameObject;
+            type_btn_on_objs[i] = on;
+            on.SetActive(false);
+            go.SetActive(true);
+        }
+    }
+
+    //点击了底部按钮
+    void OnBottomBtnClick(int index) {
+        if (index == last_click_type_index)
+            return;
+
+        if (index == 0)
+        {
+            //全部显示
+            for (int i = 1; i < type_names.Length; i++)
+            {
+                if (last_click_type_index != i) {
+                    ShowOrHideAllFacilityTypeBtns(type_names[i], true);
+                }
+            }
+        }
+        else
+        {
+            //显示当前选中设备
+            for (int i = 1; i < type_names.Length; i++)
+            {
+                if (index != i)
+                {
+                    ShowOrHideAllFacilityTypeBtns(type_names[i], false);
+                }
+            }
+            ShowOrHideAllFacilityTypeBtns(type_names[index], true);
+        }
+
+        if(last_click_type_index >= 0)
+            type_btn_on_objs[last_click_type_index].SetActive(false);
+        type_btn_on_objs[index].SetActive(true);
+        last_click_type_index = index;
+        MoveAllFacilityBtns();
+    }
+
+    //显示或者隐藏全部类型的设备按钮
+    void ShowOrHideAllFacilityTypeBtns(string type_name, bool is_show) {
+        //facility_info[] data_arr = facility_type_dic[type_name];
+        if (facility_btn_type_parents[type_name].activeInHierarchy != is_show)
+            facility_btn_type_parents[type_name].SetActive(is_show);
+    }
+
+    // ============================== 底部按钮 end=====================================
+
+    // ===============================设备按钮 start ====================================
+
+    //生成全部设备运行状态标签
+    void CreateAllFacilityBtns() {
+        for (int i = 1; i < type_names.Length; i++) {
+            string type_name = type_names[i];
+            facility_info[] type_facility_data_arr = GetTypeAllFacilityData(type_name);
+
+            //生成设备类型对应按钮的父物体，把不同类型的按钮放置在父对象下
+            GameObject parent = new GameObject();
+            parent.name = type_name;
+            parent.transform.SetParent(facility_btn_parent);
+            facility_btn_type_parents.Add(type_name, parent);
+
+            for (int j = 0; j < type_facility_data_arr.Length; j++) {
+                string facility_id = facility_data_list[type_facility_data_arr[j].find_index].id; //根据id命名设备模型
+                //查找并获取设备物体
+                string path = string.Format("model/facility_parent/{0}", facility_id);
+                GameObject obj = GameObject.Find(path);
+                type_facility_data_arr[j].obj = obj;
+                type_facility_data_arr[j].index = j;
+                type_facility_data_arr[j] = CreateSingleFacilityBtn(type_facility_data_arr[j], parent);
+                //RefreshSingleFacilityBtnInfo(type_facility_data_arr[j]);
+            }
+            facility_type_dic.Add(type_name, type_facility_data_arr);
+        }
+    }
+
+    //生成单个设备按钮UI
+    facility_info CreateSingleFacilityBtn(facility_info f, GameObject parent) {
+        FacilityData data = GetSingleFacilityData(f.find_index);
+        string type_name = data.type;
+        GameObject btn_demo = hb_demo;
+        switch (type_name) {
+            case "环保设备":
+                btn_demo = hb_demo;
+                break;
+            case "排污监测设备":
+                btn_demo = pwjc_demo;
+                break;
+            case "开门状态采集设备":
+                btn_demo = kmzt_demo;
+                break;
+            case "画面监控设备":
+                btn_demo = hmjk_demo;
+                break;
+        }
+        GameObject go = Instantiate(btn_demo);
+        go.transform.SetParent(parent.transform);
+        go.name = data.id;
+        f.obj_btn = go.transform;
+        f.icon = go.transform.Find("icon").GetComponent<Image>();
+        f.icon.sprite = Resources.Load(CommonData.Instance.type_pic_path_dic[type_name]) as Sprite;
+        f.name = go.transform.Find("name").GetComponent<Text>();
+        f.name.text = data.name;
+        go.GetComponent<Button>().onClick.AddListener(delegate {
+            OnFacilityBtnClick(type_name, f.index);
+        });
+        //RefreshSingleFacilityBtnInfo(f);
+        go.SetActive(true);
+        return f;
+    }
+
+    //刷新单个设备按钮的状态信息
+    void RefreshSingleFacilityBtnInfo(ref facility_info f) {
+        FacilityData data = GetSingleFacilityData(f.find_index);
+
+        //监控视频不刷新
+        if (data.refresh_rate < 0f)
+            return;
+
+        //检查到刷新时间了没
+        float refresh_rate = data.refresh_rate / 1000f; // 文档是毫秒
+        if (f.last_get_data_time > 0 && Time.realtimeSinceStartup >= f.last_get_data_time + refresh_rate) 
+        { return; } //没到刷新设备数据的时间
+        f.last_get_data_time = Time.realtimeSinceStartup;
+
+        /*string back_topic = string.Format("{0}/{1}", data.facility_code, data.point_code);
+        string result = GetFacilityRunningState(back_topic);
+        if (f.current_state == result)
+        { return; }
+        f.current_state = result;*/
+        NetworkGetFacilityRunningState(data.mqtt_addr, f);
+    }
+
+    //单个设备按钮的状态信息获取后的回调
+    void OnGetSingleFacilityBtnInfo(string message, string facility_type, int index)
+    {
+        if (string.IsNullOrEmpty(message)) message = "1.0"; //  TODO
+        facility_info f = facility_type_dic[facility_type][index];
+        FacilityData data = GetSingleFacilityData(f.find_index);
+        bool is_different = false;//数据是否有变动
+        Debug.Log("单个设备按钮的状态信息获取后的回调111 " + data.name + "   " + f.nong_du + "    " + f.current_state);
+        //Debug.Log("单个设备按钮的状态信息获取后的回调:" + data.name + "   " + data.refresh_rate + "  " + data.type);
+        if (data.type == "排污监测设备")
+        {
+            if (!string.Equals(f.nong_du,message)) 
+            {
+                is_different = true;
+                f.nong_du = message;
+            }
+        }
+        else 
+        {
+            if (!string.Equals(f.current_state, message)) 
+            {
+                is_different = true;
+                f.current_state = message;
+            }
+        }
+        Debug.Log("单个设备按钮的状态信息获取后的回调222 " + data.name + "   " + f.nong_du +  "    "  +  f.current_state);
+        if (!is_different) return;
+        if (info.activeInHierarchy && last_click_facility_index == f.index) { //当前打开了设备小面板,刷新
+            t2_content_txt.text = message;
+        }
+        return;
+    }
+
+    //点击设备运行状态标签，显示设备信息
+    void OnFacilityBtnClick(string facility_type, int index) {
+        facility_info f = facility_type_dic[facility_type][index];
+        FacilityData data = GetSingleFacilityData(f.find_index);
+        last_click_facility_index = f.index;
+        last_click_facility_type = facility_type;
+        Debug.Log("-------------  "  + data.name + " "+f.nong_du + "  "  +  f.current_state);
+        if (data.type == "画面监控设备")
+        {
+            //rtsp视频流
+            string video_path = data.rtsp_addr.Replace("main", "sub");
+            OpenCamPanel(data.name, video_path);
+        }
+        else
+        {
+            t1_content_txt.text = data.name;
+            if (data.type == "排污监测设备") 
+            {
+                t2_txt.text = "当前浓度：";
+                t2_content_txt.text = f.nong_du;
+            } 
+            else 
+            {
+                t2_txt.text = "运行状态：";
+                t2_content_txt.text = f.current_state;
+            }
+            info_bg_btn.SetActive(true);
+            info.SetActive(true);
+            MoveFacilityInfo();
+        }
+    }
+
+    //打开监控设备面板 TODO
+    void OpenCamPanel(string cam_name, string video_path)
+    {
+        this.cam_name.text = cam_name;
+
+        cam_control.SetMotion(false, false, false);
+        cam_panel.SetActive(true);
+    }
+
+    //关闭监控设备面板 TODO
+    void CloseCamPanel() {
+        cam_control.SetMotion(true, true, true);
+        cam_panel.SetActive(false);
+    }
+
+    //隐藏设备信息
+    void HideInfo() {
+        last_click_facility_index = -1;
+        last_click_facility_type = null;
+        info.SetActive(false);
+        info_bg_btn.SetActive(false);
+    }
+    
+    // ===============================设备按钮 end ====================================
+
+    #endregion
+
+    #region 摄像机部分（物体跟随移动 ）
+    
+    //初始化获取摄像机
+    void InitCam() {
+        cam = Camera.main.GetComponent<Camera>();
+        cam_control = cam.GetComponent<CameraControl>();
+        cam_control.SetMotion(true, true, false);
+    }
+
+    //当前显示的设备按钮的移动 
+    void MoveAllFacilityBtns() {
+        if (last_click_type_index == 0) {
+            foreach (KeyValuePair<string, facility_info[]> pair in facility_type_dic) {
+                MoveSingleFacilityTypeBtns(pair.Key);
+            }
+        } 
+        else {
+            string type_name = type_names[last_click_type_index];
+            MoveSingleFacilityTypeBtns(type_name);
+        }
+    }
+
+    //移动某个设备类型的按钮(根据设备物体的位置)
+    void MoveSingleFacilityTypeBtns(string type_name){
+        facility_info[] data_arr = facility_type_dic[type_name];
+        foreach (facility_info fa in data_arr) {
+            Vector3 pos = cam.WorldToScreenPoint(fa.obj.transform.position);
+            fa.obj_btn.transform.position = new Vector3(pos.x, pos.y, pos.z);
+        }
+    }
+
+    //info的位置对准设备按钮（根据设备物体的位置）
+    void MoveFacilityInfo() {
+        if (!info.activeInHierarchy)
+            return;
+        if (last_click_facility_index < 0)
+            return;
+        string type_name = last_click_facility_type;// type_names[last_click_type_index];
+        GameObject obj = facility_type_dic[type_name][last_click_facility_index].obj;
+        Vector3 pos = cam.WorldToScreenPoint(obj.transform.position);
+        info.transform.position = new Vector3(pos.x, pos.y, pos.z);
+    }
+
+    #endregion
+
+    private void Update()
+    {
+        if (last_click_type_index < 0) //还没点击设备类型
+            return;
+        if (cam_control != null && cam_control.CheckIsCamOperating()) // 相机移动
+        {
+            MoveFacilityInfo();
+            MoveAllFacilityBtns();
+        }
+
+        //检查设备数据更新
+        if (time_interval > 0 && Time.realtimeSinceStartup >= previous_time + time_interval) {
+            previous_time = Time.realtimeSinceStartup;
+            RefreshAllFacilityBtnInfos();
+        }
+
+        if (Input.GetKeyDown(KeyCode.Space)) {
+            foreach (KeyValuePair<string, facility_info[]> pair in facility_type_dic)
+            {
+                for (int i = 0; i < pair.Value.Length; i++)
+                {
+                    facility_info fa = pair.Value[i];
+                    //监控视频不刷新
+                    FacilityData data = GetSingleFacilityData(fa.find_index);
+                    Debug.Log(pair.Key + "  " + i +" " + data.name + "  " + fa.obj.name + " " + fa.nong_du);
+                }
+            }
+        }
+    }
+
+    //初始化刷新设备运行状态的 时间 信息
+    void InitRefreshTime() {
+        float min_refresh_time = float.PositiveInfinity;
+        for (int i = 0; i < facility_data_list.Count; i++)
+        {
+            int refresh_rate = facility_data_list[i].refresh_rate;
+            if (refresh_rate >= 0f)
+            {
+                float rate = refresh_rate / 1000f;
+                if (rate < min_refresh_time)
+                {
+                    min_refresh_time = rate;
+                }
+            }
+        }
+        time_interval = min_refresh_time;
+        previous_time = Time.realtimeSinceStartup - time_interval; //一开始先刷新一次数据
+        Debug.Log("刷新的最小时间：" + time_interval + "；上次刷新的时间：" + previous_time);
+    }
+
+    //刷新设备按钮运行信息(全部设备信息统一刷新时间, invokereapting) 
+    void RefreshAllFacilityBtnInfos()
+    {
+        foreach (KeyValuePair<string, facility_info[]> pair in facility_type_dic)
+        {
+            for (int i = 0; i < pair.Value.Length; i++)
+            {
+                facility_info fa = pair.Value[i];
+                //监控视频不刷新
+                FacilityData data = GetSingleFacilityData(fa.find_index);
+                if (data.refresh_rate >= 0f) {
+                    RefreshSingleFacilityBtnInfo(ref fa);
+                    //fa.nong_du = new_f.nong_du;
+                    //fa.current_state = new_f.current_state;
+                    //fa.last_get_data_time = new_f.last_get_data_time;
+                }
+            }
+        }
+    }
+
+    private void OnDestroy()
+    {
+        MqttController.Instance.Disconnect();
+    }
+
+    #region  警告信息
+    //初始化
+    void InitPromptCanvas()
+    {
+        if (promptCanvas == null)
+        {
+            GameObject obj = Resources.Load("Prefabs/PromptCanvas") as GameObject;
+            promptCanvas = Instantiate(obj);
+            propt_panel_script = promptCanvas.GetComponentInChildren<PromptPanel>();
+            propt_panel_script.InitComponent();
+            promptCanvas.SetActive(false);
+            DontDestroyOnLoad(promptCanvas);
+        }
+        /*if (is_check_warn) {
+            InvokeRepeating("CheckWarnMessage", 3, 10); //3 秒后调用方法，并且之后每隔 120 秒调用一次
+        }*/
+    }
+
+    private int index;
+    //通过网络获取警告信息 TODO
+    public void CheckWarnMessage()  //  string url
+    {
+        //NetworkDownload.GetInstance().GetMessageWithCallback(url,  FinishDownloadWarnMessage);
+        int warn_message_num = 3; // TODO 警告信息的数量
+        string[] s = new string[warn_message_num];
+        for (int i = 0; i < warn_message_num; i++)
+        {
+            index += 1;
+            s[i] = "有新的警告信息" + index;
+        }
+        FinishDownloadWarnMessage(s);
+    }
+    //有警告数据之后的操作 
+    void FinishDownloadWarnMessage(string[] message)
+    {
+        //判断是否有警告信息，获取或者生成PromptCanvas
+        /*PromptPanel[] panel_scripts = promptCanvas.GetComponentsInChildren<PromptPanel>();
+        foreach (PromptPanel p in panel_scripts){
+            p.OnOpenPanelRefreshUI(message);
+        }*/
+        SetPromptCanvasActive(true);
+        propt_panel_script.OnOpenPanelRefreshUI(message);
+    }
+
+    //开启或者关闭检测警告信息
+    public void SetIsCheckWarn(bool is_check)
+    {
+        is_check_warn = is_check;
+        if (is_check)
+        {
+            InvokeRepeating("CheckWarnMessage", 5, 60); 
+        }
+        else
+        {
+            CancelInvoke("CheckWarnMessage");
+        }
+    }
+
+    //设置promptCanvas显示或者隐藏
+    public void SetPromptCanvasActive(bool is_active)
+    {
+        if (promptCanvas != null && promptCanvas.activeInHierarchy != is_active)
+        {
+            promptCanvas.SetActive(is_active);
+        }
+    }
+
+    #endregion
+}
+
+//记录的设备信息及物体(运行状态按钮)
+public struct facility_info
+{
+    public int index;//自身的index
+    public int find_index;//从facility_data_list获取数据的index
+
+    public string current_state { get; set; } //当前的设备运行状态
+    public string nong_du { get; set; } //排污设备的浓度
+
+    public GameObject obj;//设备物体
+    public Transform obj_btn;//设备的按钮transform
+    public Image icon;//设备按钮的img
+    public Text name;//名字的 Text
+
+    public float last_get_data_time;//上次获取设备运行状态的时间
+
+    public void SetValue(string s) {
+        current_state = s;
+        nong_du = s;
+    }
+}
