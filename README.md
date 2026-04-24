@@ -1,5 +1,5 @@
 # UnityDigitalTwinExample
-The digital twin application built using Unity3d utilizes three plugins: Best HTTP, DOTween, and UniversalMediaPlayer. No model uploaded.
+The digital twin application built using Unity3d utilizes three plugins: Best HTTP, DOTween, and UniversalMediaPlayer. This project doesn't include any 3d models.
 
 Best HTTP:https://assetstore.unity.com/packages/tools/network/best-http-2-155981
 
